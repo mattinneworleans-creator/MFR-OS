@@ -14,7 +14,7 @@ body {
 }
 
 #screen {
-    padding-top: 80px;
+    padding-top: 70px;
 }
 
 h1 {
@@ -22,13 +22,13 @@ h1 {
 }
 
 p {
-    font-size: 24px;
+    font-size: 22px;
 }
 
 button {
-    margin-top: 30px;
-    padding: 20px 50px;
-    font-size: 24px;
+    margin: 15px;
+    padding: 20px 45px;
+    font-size: 22px;
     background: #00eaff;
     color: #05070a;
     border: none;
@@ -37,6 +37,15 @@ button {
 
 input {
     display: none;
+}
+
+#playButton {
+    display: none;
+}
+
+audio {
+    margin-top: 25px;
+    width: 70%;
 }
 </style>
 </head>
@@ -55,11 +64,22 @@ input {
 CHOOSE SONG
 </button>
 
+<button id="playButton">
+PLAY SONG
+</button>
+
+<br>
+
+<audio id="player" controls></audio>
+
 </div>
 
 <script>
 
 const songFile = document.getElementById("songFile");
+const player = document.getElementById("player");
+const playButton = document.getElementById("playButton");
+const status = document.getElementById("status");
 
 songFile.addEventListener("change", function() {
 
@@ -67,11 +87,25 @@ songFile.addEventListener("change", function() {
 
         const song = this.files[0];
 
-        document.getElementById("status").textContent =
+        const songURL = URL.createObjectURL(song);
+
+        player.src = songURL;
+
+        status.textContent =
             "SONG LOADED: " + song.name;
 
+        playButton.style.display = "inline-block";
     }
 
+});
+
+playButton.addEventListener("click", function() {
+
+    player.play();
+
+    status.textContent = "NOW PLAYING";
+
+    playButton.textContent = "PLAYING";
 });
 
 </script>
