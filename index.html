@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MFR//OS</title>
+<title>MFR//OS Audio Test</title>
 
 <style>
 body {
@@ -14,20 +14,21 @@ body {
 }
 
 #screen {
-    padding-top: 70px;
+    padding-top: 60px;
 }
 
 h1 {
     font-size: 60px;
 }
 
-p {
+#status {
     font-size: 22px;
+    margin: 30px;
 }
 
 button {
     margin: 15px;
-    padding: 20px 45px;
+    padding: 20px 40px;
     font-size: 22px;
     background: #00eaff;
     color: #05070a;
@@ -39,13 +40,10 @@ input {
     display: none;
 }
 
-#playButton {
-    display: none;
-}
-
 audio {
-    margin-top: 25px;
+    display: block;
     width: 70%;
+    margin: 30px auto;
 }
 </style>
 </head>
@@ -54,58 +52,84 @@ audio {
 
 <div id="screen">
 
-<h1>MFR//OS</h1>
+    <h1>MFR//OS</h1>
 
-<p id="status">SELECT A SONG</p>
+    <p id="status">NO SONG LOADED</p>
 
-<input type="file" id="songFile" accept="audio/*">
+    <input type="file"
+           id="songFile"
+           accept=".mp3,audio/mpeg,audio/*">
 
-<button onclick="document.getElementById('songFile').click()">
-CHOOSE SONG
-</button>
+    <button id="chooseButton">CHOOSE SONG</button>
 
-<button id="playButton">
-PLAY SONG
-</button>
+    <button id="playButton">PLAY SONG</button>
 
-<br>
+    <button id="pauseButton">PAUSE</button>
 
-<audio id="player" controls></audio>
+    <audio id="player" controls></audio>
 
 </div>
 
 <script>
 
 const songFile = document.getElementById("songFile");
-const player = document.getElementById("player");
+const chooseButton = document.getElementById("chooseButton");
 const playButton = document.getElementById("playButton");
+const pauseButton = document.getElementById("pauseButton");
+const player = document.getElementById("player");
 const status = document.getElementById("status");
+
+let currentURL = null;
+
+chooseButton.addEventListener("click", function() {
+    songFile.click();
+});
 
 songFile.addEventListener("change", function() {
 
-    if (this.files.length > 0) {
-
-        const song = this.files[0];
-
-        const songURL = URL.createObjectURL(song);
-
-        player.src = songURL;
-
-        status.textContent =
-            "SONG LOADED: " + song.name;
-
-        playButton.style.display = "inline-block";
+    if (!songFile.files.length) {
+        return;
     }
 
+    const song = songFile.files[0];
+
+    if (currentURL) {
+        URL.revokeObjectURL(currentURL);
+    }
+
+    currentURL = URL.createObjectURL(song);
+
+    player.src = currentURL;
+    player.load();
+
+    status.textContent = "LOADED: " + song.name;
 });
 
 playButton.addEventListener("click", function() {
 
-    player.play();
+    if (!player.src) {
+        status.textContent = "CHOOSE A SONG FIRST";
+        return;
+    }
 
-    status.textContent = "NOW PLAYING";
+    const result = player.play();
 
-    playButton.textContent = "PLAYING";
+    if (result !== undefined) {
+        result.then(function() {
+            status.textContent = "NOW PLAYING";
+        }).catch(function(error) {
+            status.textContent = "PLAY ERROR: " + error.message;
+        });
+    }
+});
+
+pauseButton.addEventListener("click", function() {
+    player.pause();
+    status.textContent = "PAUSED";
+});
+
+player.addEventListener("error", function() {
+    status.textContent = "AUDIO ERROR";
 });
 
 </script>
