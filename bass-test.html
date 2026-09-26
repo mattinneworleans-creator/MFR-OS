@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MFR//OS TEST 02</title>
+
+<style>
+body {
+    margin: 0;
+    background: #05070a;
+    color: #00eaff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+h1 { font-size: 50px; }
+h2 { font-size: 24px; }
+
+button {
+    margin: 10px;
+    padding: 15px 30px;
+    font-size: 18px;
+    background: #00eaff;
+    border: none;
+    cursor: pointer;
+}
+
+input { display: none; }
+
+audio {
+    width: 75%;
+    margin: 20px;
+}
+
+#bass {
+    font-size: 70px;
+    font-weight: bold;
+    margin: 30px;
+}
+
+#status {
+    font-size: 18px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>MFR//OS</h1>
+<h2>TEST 02 — BASS DETECTION</h2>
+
+<input type="file" id="songFile" accept="audio/*">
+
+<button id="choose">CHOOSE SONG</button>
+<button id="play">PLAY</button>
+<button id="pause">PAUSE</button>
+
+<br>
+
+<audio id="player" controls></audio>
+
+<div id="bass">BASS: 0%</div>
+
+<div id="status">TEST 02 READY</div>
+
+<script>
+
+const songFile = document.getElementById("songFile");
+const player = document.getElementById("player");
+const bassDisplay = document.getElementById("bass");
+const status = document.getElementById("status");
+
+let audioContext;
+let analyser;
+let source;
+let dataArray;
+let songURL;
+
+document.getElementById("choose").onclick = function() {
+    songFile.click();
+};
+
+songFile.onchange = function() {
+
+    if (!songFile.files.length) return;
+
+    if (songURL) URL.revokeObjectURL(songURL);
+
+    songURL = URL.createObjectURL(songFile.files[0]);
+
+    player.src = songURL;
+    player.load();
+
+    status.textContent = "TEST 02 — SONG LOADED";
+};
+
+document.getElementById("play").onclick = async function() {
+
+    try {
+
+        if (!audioContext) {
+
+            const AC =
+                window.AudioContext ||
+                window.webkitAudioContext;
+
+            audioContext = new AC();
+
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.70;
+
+            source =
+                audioContext.createMediaElementSource(player);
+
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            dataArray =
+                new Uint8Array(analyser.frequencyBinCount);
+
+            updateBass();
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        await player.play();
+
+        status.textContent =
+            "TEST 02 — ANALYZING";
+
+    } catch(error) {
+
+        status.textContent =
+            "TEST 02 ERROR: " + error.message;
+    }
+};
+
+document.getElementById("pause").onclick = function() {
+    player.pause();
+    status.textContent = "TEST 02 — PAUSED";
+};
+
+function updateBass() {
+
+    requestAnimationFrame(updateBass);
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const sampleRate = audioContext.sampleRate;
+    const binHz = sampleRate / analyser.fftSize;
+
+    const lowBin = Math.max(1, Math.floor(40 / binHz));
+    const highBin = Math.min(
+        dataArray.length - 1,
+        Math.ceil(160 / binHz)
+    );
+
+    let total = 0;
+    let count = 0;
+
+    for (let i = lowBin; i <= highBin; i++) {
+        total += dataArray[i];
+        count++;
+    }
+
+    const average = count ? total / count : 0;
+
+    const percent =
+        Math.round((average / 255) * 100);
+
+    bassDisplay.textContent =
+        "BASS: " + percent + "%";
+}
+
+</script>
+
+</body>
+</html>
