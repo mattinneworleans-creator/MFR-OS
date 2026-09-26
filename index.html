@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MFR//OS Audio Test</title>
+<title>MFR//OS Audio Analyzer</title>
 
 <style>
 body {
@@ -14,22 +14,23 @@ body {
 }
 
 #screen {
-    padding-top: 60px;
+    padding-top: 35px;
 }
 
 h1 {
-    font-size: 60px;
+    font-size: 55px;
+    margin: 10px;
 }
 
 #status {
-    font-size: 22px;
-    margin: 30px;
+    font-size: 20px;
+    margin: 15px;
 }
 
 button {
-    margin: 15px;
-    padding: 20px 40px;
-    font-size: 22px;
+    margin: 8px;
+    padding: 15px 30px;
+    font-size: 18px;
     background: #00eaff;
     color: #05070a;
     border: none;
@@ -43,7 +44,15 @@ input {
 audio {
     display: block;
     width: 70%;
-    margin: 30px auto;
+    margin: 15px auto;
+}
+
+canvas {
+    width: 80%;
+    height: 220px;
+    background: #020304;
+    border: 2px solid #00eaff;
+    margin-top: 15px;
 }
 </style>
 </head>
@@ -61,12 +70,12 @@ audio {
            accept=".mp3,audio/mpeg,audio/*">
 
     <button id="chooseButton">CHOOSE SONG</button>
-
     <button id="playButton">PLAY SONG</button>
-
     <button id="pauseButton">PAUSE</button>
 
     <audio id="player" controls></audio>
+
+    <canvas id="visualizer" width="800" height="220"></canvas>
 
 </div>
 
@@ -79,7 +88,15 @@ const pauseButton = document.getElementById("pauseButton");
 const player = document.getElementById("player");
 const status = document.getElementById("status");
 
+const canvas = document.getElementById("visualizer");
+const ctx = canvas.getContext("2d");
+
 let currentURL = null;
+
+let audioContext = null;
+let analyser = null;
+let source = null;
+let dataArray = null;
 
 chooseButton.addEventListener("click", function() {
     songFile.click();
@@ -87,9 +104,7 @@ chooseButton.addEventListener("click", function() {
 
 songFile.addEventListener("change", function() {
 
-    if (!songFile.files.length) {
-        return;
-    }
+    if (!songFile.files.length) return;
 
     const song = songFile.files[0];
 
@@ -105,32 +120,90 @@ songFile.addEventListener("change", function() {
     status.textContent = "LOADED: " + song.name;
 });
 
-playButton.addEventListener("click", function() {
+playButton.addEventListener("click", async function() {
 
     if (!player.src) {
         status.textContent = "CHOOSE A SONG FIRST";
         return;
     }
 
-    const result = player.play();
+    try {
 
-    if (result !== undefined) {
-        result.then(function() {
-            status.textContent = "NOW PLAYING";
-        }).catch(function(error) {
-            status.textContent = "PLAY ERROR: " + error.message;
-        });
+        if (!audioContext) {
+
+            audioContext = new AudioContext();
+
+            analyser = audioContext.createAnalyser();
+
+            analyser.fftSize = 256;
+
+            source =
+                audioContext.createMediaElementSource(player);
+
+            source.connect(analyser);
+
+            analyser.connect(audioContext.destination);
+
+            dataArray =
+                new Uint8Array(analyser.frequencyBinCount);
+
+            drawVisualizer();
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        await player.play();
+
+        status.textContent = "NOW PLAYING";
+
+    } catch (error) {
+
+        status.textContent =
+            "ERROR: " + error.message;
     }
 });
 
 pauseButton.addEventListener("click", function() {
+
     player.pause();
+
     status.textContent = "PAUSED";
 });
 
-player.addEventListener("error", function() {
-    status.textContent = "AUDIO ERROR";
-});
+
+function drawVisualizer() {
+
+    requestAnimationFrame(drawVisualizer);
+
+    analyser.getByteFrequencyData(dataArray);
+
+    ctx.fillStyle = "#020304";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const barWidth =
+        canvas.width / dataArray.length;
+
+    let x = 0;
+
+    for (let i = 0; i < dataArray.length; i++) {
+
+        const barHeight =
+            (dataArray[i] / 255) * canvas.height;
+
+        ctx.fillStyle = "#00eaff";
+
+        ctx.fillRect(
+            x,
+            canvas.height - barHeight,
+            barWidth - 1,
+            barHeight
+        );
+
+        x += barWidth;
+    }
+}
 
 </script>
 
