@@ -2,66 +2,64 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MFR//OS GAME 01</title>
+<title>MFR//OS NEON RUNNER</title>
 
 <style>
 body {
-    margin: 0;
-    background: #020306;
-    color: #00eaff;
-    font-family: Arial, sans-serif;
-    text-align: center;
-    overflow: hidden;
+    margin:0;
+    background:#020306;
+    color:#00eaff;
+    font-family:Arial,sans-serif;
+    text-align:center;
+    overflow:hidden;
 }
 
 h1 {
-    margin: 6px 0 0;
-    font-size: 28px;
+    margin:6px 0 0;
+    font-size:28px;
 }
 
 #version {
-    font-size: 13px;
-    margin-bottom: 5px;
+    font-size:13px;
+    margin-bottom:5px;
 }
 
 button {
-    padding: 9px 18px;
-    margin: 3px;
-    background: #00eaff;
-    color: #020306;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    user-select: none;
+    padding:9px 18px;
+    margin:3px;
+    border:0;
+    background:#00eaff;
+    color:#020306;
+    font-weight:bold;
+    cursor:pointer;
+    user-select:none;
 }
 
-input {
-    display: none;
-}
+input { display:none; }
 
 audio {
-    width: 55%;
-    height: 26px;
-    vertical-align: middle;
+    width:55%;
+    height:26px;
+    vertical-align:middle;
 }
 
 #info {
-    margin: 4px;
-    font-size: 14px;
+    margin:4px;
+    font-size:14px;
 }
 
 #game {
-    display: block;
-    margin: 6px auto;
-    border: 2px solid #00eaff;
-    background: #020306;
-    max-width: 96vw;
-    max-height: 68vh;
+    display:block;
+    margin:6px auto;
+    border:2px solid #00eaff;
+    background:#020306;
+    max-width:96vw;
+    max-height:68vh;
 }
 
 .controls button {
-    min-width: 120px;
-    font-size: 18px;
+    min-width:120px;
+    font-size:18px;
 }
 </style>
 </head>
@@ -69,7 +67,7 @@ audio {
 <body>
 
 <h1>MFR//OS</h1>
-<div id="version">GAME 01 — NEON RUNNER</div>
+<div id="version">GAME 01 — MUSIC TERRAIN v2</div>
 
 <input type="file" id="songFile" accept="audio/*">
 
@@ -81,7 +79,9 @@ audio {
 
 <div id="info">
 BASS: <span id="bass">0</span>% |
-SPEED: <span id="speed">0</span> |
+MID: <span id="mid">0</span>% |
+HIGH: <span id="high">0</span>% |
+ENERGY: <span id="energy">0</span>% |
 <span id="status">READY</span>
 </div>
 
@@ -97,11 +97,13 @@ SPEED: <span id="speed">0</span> |
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const songFile = document.getElementById("songFile");
 const player = document.getElementById("player");
+const songFile = document.getElementById("songFile");
 
 const bassText = document.getElementById("bass");
-const speedText = document.getElementById("speed");
+const midText = document.getElementById("mid");
+const highText = document.getElementById("high");
+const energyText = document.getElementById("energy");
 const statusText = document.getElementById("status");
 
 let audioContext;
@@ -111,26 +113,16 @@ let dataArray;
 let songURL;
 
 let bass = 0;
-let roadTime = 0;
+let mids = 0;
+let highs = 0;
+let energy = 0;
+let smoothEnergy = 0;
 
-/* -------------------------
-   SMOOTH STEERING
-------------------------- */
+let worldTime = 0;
 
-let steering = 0;
-let targetSteering = 0;
-
-let leftHeld = false;
-let rightHeld = false;
-
-const MAX_STEER = 1;
-const STEER_SPEED = 0.035;
-const RETURN_SPEED = 0.025;
-const SMOOTHING = 0.12;
-
-/* -------------------------
+/* =========================
    AUDIO
-------------------------- */
+========================= */
 
 document.getElementById("choose").onclick = () => {
     songFile.click();
@@ -140,11 +132,11 @@ songFile.onchange = () => {
 
     if (!songFile.files.length) return;
 
-    if (songURL) {
+    if (songURL)
         URL.revokeObjectURL(songURL);
-    }
 
-    songURL = URL.createObjectURL(songFile.files[0]);
+    songURL =
+        URL.createObjectURL(songFile.files[0]);
 
     player.src = songURL;
     player.load();
@@ -165,9 +157,8 @@ document.getElementById("play").onclick = async () => {
             audioContext = new AC();
 
             analyser = audioContext.createAnalyser();
-
             analyser.fftSize = 2048;
-            analyser.smoothingTimeConstant = 0.68;
+            analyser.smoothingTimeConstant = 0.72;
 
             source =
                 audioContext.createMediaElementSource(player);
@@ -179,523 +170,591 @@ document.getElementById("play").onclick = async () => {
                 new Uint8Array(analyser.frequencyBinCount);
         }
 
-        if (audioContext.state === "suspended") {
+        if (audioContext.state === "suspended")
             await audioContext.resume();
-        }
 
         await player.play();
 
         statusText.textContent = "RUNNING";
 
-    } catch(error) {
+    } catch(err) {
 
         statusText.textContent =
-            "ERROR: " + error.message;
+            "ERROR: " + err.message;
     }
 };
 
 document.getElementById("pause").onclick = () => {
 
     player.pause();
-
     statusText.textContent = "PAUSED";
 };
 
-function readBass() {
 
-    if (!analyser) {
-        bass = 0;
-        return;
-    }
+/* =========================
+   FREQUENCY ANALYSIS
+========================= */
 
-    analyser.getByteFrequencyData(dataArray);
+function bandAverage(minHz,maxHz) {
 
     const sampleRate = audioContext.sampleRate;
     const binHz = sampleRate / analyser.fftSize;
 
-    const lowBin =
-        Math.max(1, Math.floor(40 / binHz));
+    let start =
+        Math.floor(minHz / binHz);
 
-    const highBin =
-        Math.min(
-            dataArray.length - 1,
-            Math.ceil(160 / binHz)
-        );
+    let end =
+        Math.ceil(maxHz / binHz);
+
+    start =
+        Math.max(0,start);
+
+    end =
+        Math.min(dataArray.length-1,end);
 
     let total = 0;
     let count = 0;
 
-    for (let i = lowBin; i <= highBin; i++) {
+    for(let i=start;i<=end;i++) {
         total += dataArray[i];
         count++;
     }
 
-    const average =
-        count ? total / count : 0;
+    return count ?
+        (total / count) / 255 :
+        0;
+}
+
+function analyzeMusic() {
+
+    if(!analyser)
+        return;
+
+    analyser.getByteFrequencyData(dataArray);
 
     bass =
-        Math.round((average / 255) * 100);
+        bandAverage(40,180);
 
-    bassText.textContent = bass;
+    mids =
+        bandAverage(180,2500);
+
+    highs =
+        bandAverage(2500,12000);
+
+    energy =
+        bass * 0.45 +
+        mids * 0.35 +
+        highs * 0.20;
+
+    /*
+       Slow energy measurement.
+       Terrain responds gradually
+       instead of jumping around.
+    */
+
+    smoothEnergy +=
+        (energy - smoothEnergy) * 0.015;
+
+    bassText.textContent =
+        Math.round(bass*100);
+
+    midText.textContent =
+        Math.round(mids*100);
+
+    highText.textContent =
+        Math.round(highs*100);
+
+    energyText.textContent =
+        Math.round(smoothEnergy*100);
 }
 
-/* -------------------------
-   KEYBOARD STEERING
-------------------------- */
 
-document.addEventListener("keydown", e => {
+/* =========================
+   MUSIC COLOR
+========================= */
 
-    if (e.key === "ArrowLeft" ||
-        e.key.toLowerCase() === "a") {
+function musicColor(depth, brightness=1) {
 
-        leftHeld = true;
-        e.preventDefault();
-    }
+    /*
+       Bass pushes toward magenta/red.
+       Mids move toward violet.
+       Highs push toward cyan.
 
-    if (e.key === "ArrowRight" ||
-        e.key.toLowerCase() === "d") {
+       Depth changes hue slightly so
+       the road isn't one solid color.
+    */
 
-        rightHeld = true;
-        e.preventDefault();
-    }
-});
+    let hue =
+        190 +
+        highs * 35 -
+        bass * 110 +
+        mids * 45 +
+        depth * 30;
 
-document.addEventListener("keyup", e => {
+    hue =
+        ((hue % 360) + 360) % 360;
 
-    if (e.key === "ArrowLeft" ||
-        e.key.toLowerCase() === "a") {
+    const saturation =
+        70 + energy * 30;
 
-        leftHeld = false;
-    }
+    const lightness =
+        Math.min(
+            75,
+            35 +
+            energy * 35 +
+            brightness * 10
+        );
 
-    if (e.key === "ArrowRight" ||
-        e.key.toLowerCase() === "d") {
-
-        rightHeld = false;
-    }
-});
-
-/* -------------------------
-   BUTTON STEERING
-
-   Mouse + touch so this
-   also works on the prim.
-------------------------- */
-
-function holdLeft() {
-    leftHeld = true;
+    return `hsl(${hue},${saturation}%,${lightness}%)`;
 }
 
-function releaseLeft() {
-    leftHeld = false;
-}
 
-function holdRight() {
-    rightHeld = true;
-}
+/* =========================
+   STEERING
+========================= */
 
-function releaseRight() {
-    rightHeld = false;
-}
+let steering = 0;
+let velocity = 0;
 
-const leftButton =
-    document.getElementById("left");
+let leftHeld = false;
+let rightHeld = false;
 
-const rightButton =
-    document.getElementById("right");
-
-leftButton.addEventListener("mousedown", holdLeft);
-leftButton.addEventListener("mouseup", releaseLeft);
-leftButton.addEventListener("mouseleave", releaseLeft);
-
-rightButton.addEventListener("mousedown", holdRight);
-rightButton.addEventListener("mouseup", releaseRight);
-rightButton.addEventListener("mouseleave", releaseRight);
-
-leftButton.addEventListener("touchstart", e => {
-    e.preventDefault();
-    holdLeft();
-});
-
-leftButton.addEventListener("touchend", e => {
-    e.preventDefault();
-    releaseLeft();
-});
-
-rightButton.addEventListener("touchstart", e => {
-    e.preventDefault();
-    holdRight();
-});
-
-rightButton.addEventListener("touchend", e => {
-    e.preventDefault();
-    releaseRight();
-});
-
-/* -------------------------
-   STEERING PHYSICS
-------------------------- */
+const ACCELERATION = 0.0035;
+const FRICTION = 0.91;
+const MAX_VELOCITY = 0.035;
 
 function updateSteering() {
 
-    if (leftHeld && !rightHeld) {
+    if(leftHeld)
+        velocity -= ACCELERATION;
 
-        targetSteering -= STEER_SPEED;
+    if(rightHeld)
+        velocity += ACCELERATION;
 
-    } else if (rightHeld && !leftHeld) {
+    velocity *= FRICTION;
 
-        targetSteering += STEER_SPEED;
-
-    } else {
-
-        /*
-          Slowly return target
-          toward center.
-        */
-
-        if (targetSteering > 0) {
-
-            targetSteering =
-                Math.max(
-                    0,
-                    targetSteering - RETURN_SPEED
-                );
-
-        } else if (targetSteering < 0) {
-
-            targetSteering =
-                Math.min(
-                    0,
-                    targetSteering + RETURN_SPEED
-                );
-        }
-    }
-
-    targetSteering =
+    velocity =
         Math.max(
-            -MAX_STEER,
-            Math.min(MAX_STEER, targetSteering)
+            -MAX_VELOCITY,
+            Math.min(MAX_VELOCITY,velocity)
         );
 
-    /*
-      Smooth interpolation.
+    steering += velocity;
 
-      THIS is what removes
-      the lane-jump jerkiness.
-    */
+    if(steering < -1) {
+        steering = -1;
+        velocity = 0;
+    }
 
-    steering +=
-        (targetSteering - steering) *
-        SMOOTHING;
+    if(steering > 1) {
+        steering = 1;
+        velocity = 0;
+    }
 }
 
-/* -------------------------
-   ROAD
-------------------------- */
+document.addEventListener("keydown",e=>{
 
-function roadCurve(depth) {
+    if(e.key==="ArrowLeft" ||
+       e.key.toLowerCase()==="a") {
+        leftHeld=true;
+        e.preventDefault();
+    }
 
-    /*
-      Two overlapping curves
-      stop the road from feeling
-      like a simple sine wave.
-    */
+    if(e.key==="ArrowRight" ||
+       e.key.toLowerCase()==="d") {
+        rightHeld=true;
+        e.preventDefault();
+    }
+});
 
-    const curve1 =
-        Math.sin(
-            roadTime * 0.55 +
-            depth * 3.2
-        ) * 70;
+document.addEventListener("keyup",e=>{
 
-    const curve2 =
-        Math.sin(
-            roadTime * 0.21 +
-            depth * 6.0
-        ) * 24;
+    if(e.key==="ArrowLeft" ||
+       e.key.toLowerCase()==="a")
+        leftHeld=false;
 
-    return (curve1 + curve2) * depth;
+    if(e.key==="ArrowRight" ||
+       e.key.toLowerCase()==="d")
+        rightHeld=false;
+});
+
+
+function setupHoldButton(id,direction) {
+
+    const button =
+        document.getElementById(id);
+
+    function down(e) {
+
+        if(e)
+            e.preventDefault();
+
+        if(direction<0)
+            leftHeld=true;
+        else
+            rightHeld=true;
+    }
+
+    function up(e) {
+
+        if(e)
+            e.preventDefault();
+
+        if(direction<0)
+            leftHeld=false;
+        else
+            rightHeld=false;
+    }
+
+    button.addEventListener("mousedown",down);
+    button.addEventListener("mouseup",up);
+    button.addEventListener("mouseleave",up);
+
+    button.addEventListener("touchstart",down);
+    button.addEventListener("touchend",up);
 }
 
-function roadHill(depth) {
+setupHoldButton("left",-1);
+setupHoldButton("right",1);
 
-    /*
-      Vertical rise/fall.
 
-      Stronger toward horizon,
-      softer near player.
-    */
+/* =========================
+   TERRAIN
+========================= */
+
+function curveAt(distance) {
 
     return (
         Math.sin(
-            roadTime * 0.40 +
-            depth * 4.5
-        ) *
-        24 *
-        (1 - depth)
-    );
+            worldTime*0.22 +
+            distance*4.2
+        ) * 80 +
+
+        Math.sin(
+            worldTime*0.09 +
+            distance*8.5
+        ) * 30
+    ) * distance;
 }
 
-function roadWidth(depth) {
 
-    return 40 + depth * 300;
+function terrainHeight(distance) {
+
+    /*
+       Two large waves create
+       actual hills and valleys.
+
+       Music energy increases
+       terrain amplitude.
+    */
+
+    const amplitude =
+        45 +
+        smoothEnergy * 120;
+
+    const hill1 =
+        Math.sin(
+            worldTime*0.13 +
+            distance*5.0
+        );
+
+    const hill2 =
+        Math.sin(
+            worldTime*0.055 +
+            distance*9.0
+        ) * 0.35;
+
+    return (
+        hill1 + hill2
+    ) * amplitude;
 }
 
-function roadY(depth) {
 
-    const horizon = 80;
+function roadPoint(distance) {
 
-    return horizon +
-        depth * depth *
-        (canvas.height - horizon) +
-        roadHill(depth);
+    /*
+       distance:
+       0 = horizon
+       1 = player
+    */
+
+    const perspective =
+        distance * distance;
+
+    const baseY =
+        100 +
+        perspective * 330;
+
+    /*
+       Terrain has much more
+       visible effect in the
+       middle/far road.
+    */
+
+    const terrainInfluence =
+        Math.sin(distance * Math.PI);
+
+    const elevation =
+        terrainHeight(distance) *
+        terrainInfluence;
+
+    return {
+
+        x:
+            canvas.width/2 +
+            curveAt(distance),
+
+        y:
+            baseY - elevation,
+
+        width:
+            35 +
+            perspective * 310
+    };
 }
 
-function roadCenter(depth) {
 
-    return canvas.width / 2 +
-        roadCurve(depth);
-}
-
-/* -------------------------
+/* =========================
    DRAW ROAD
-------------------------- */
+========================= */
 
 function drawRoad() {
 
-    const segments = 45;
+    const segments = 60;
 
-    for (let i = 0; i < segments; i++) {
+    for(let i=0;i<segments;i++) {
 
-        const d1 = i / segments;
-        const d2 = (i + 1) / segments;
+        const d1 =
+            i/segments;
 
-        const y1 = roadY(d1);
-        const y2 = roadY(d2);
+        const d2 =
+            (i+1)/segments;
 
-        const center1 = roadCenter(d1);
-        const center2 = roadCenter(d2);
+        const p1 =
+            roadPoint(d1);
 
-        const width1 = roadWidth(d1);
-        const width2 = roadWidth(d2);
+        const p2 =
+            roadPoint(d2);
 
-        const alpha =
-            0.15 + d1 * 0.75;
+        const color =
+            musicColor(d1);
 
-        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
 
-        ctx.strokeStyle = "#00eaff";
-        ctx.lineWidth = 2;
+        ctx.lineWidth =
+            1.2 + d1*1.8;
 
-        /*
-          Left edge
-        */
+        ctx.globalAlpha =
+            0.22 + d1*0.78;
 
-        ctx.beginPath();
 
-        ctx.moveTo(
-            center1 - width1,
-            y1
-        );
-
-        ctx.lineTo(
-            center2 - width2,
-            y2
-        );
-
-        ctx.stroke();
-
-        /*
-          Right edge
-        */
+        /* LEFT EDGE */
 
         ctx.beginPath();
 
         ctx.moveTo(
-            center1 + width1,
-            y1
+            p1.x-p1.width,
+            p1.y
         );
 
         ctx.lineTo(
-            center2 + width2,
-            y2
+            p2.x-p2.width,
+            p2.y
         );
 
         ctx.stroke();
 
-        /*
-          Lane separators
-        */
 
-        for (let lane = -1; lane <= 1; lane += 2) {
+        /* RIGHT EDGE */
 
-            ctx.globalAlpha =
-                alpha * 0.45;
+        ctx.beginPath();
+
+        ctx.moveTo(
+            p1.x+p1.width,
+            p1.y
+        );
+
+        ctx.lineTo(
+            p2.x+p2.width,
+            p2.y
+        );
+
+        ctx.stroke();
+
+
+        /* LANE DIVIDERS */
+
+        ctx.globalAlpha *= 0.45;
+
+        for(let lane of [-1,1]) {
 
             ctx.beginPath();
 
             ctx.moveTo(
-                center1 +
-                lane * width1 / 3,
-                y1
+                p1.x +
+                lane*p1.width/3,
+                p1.y
             );
 
             ctx.lineTo(
-                center2 +
-                lane * width2 / 3,
-                y2
+                p2.x +
+                lane*p2.width/3,
+                p2.y
             );
 
             ctx.stroke();
         }
 
+
         /*
-          Moving cross-lines
+           Cross lines.
+
+           Offset with worldTime
+           so road visibly moves.
         */
 
-        if (
-            ((i + Math.floor(roadTime * 12)) % 4)
-            === 0
+        const movingIndex =
+            Math.floor(
+                worldTime*20
+            );
+
+        if(
+            (i+movingIndex)%4===0
         ) {
 
             ctx.globalAlpha =
-                alpha * 0.55;
+                0.15 + d1*0.55;
 
             ctx.beginPath();
 
             ctx.moveTo(
-                center1 - width1,
-                y1
+                p1.x-p1.width,
+                p1.y
             );
 
             ctx.lineTo(
-                center1 + width1,
-                y1
+                p1.x+p1.width,
+                p1.y
             );
 
             ctx.stroke();
         }
     }
 
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha=1;
 }
 
-/* -------------------------
+
+/* =========================
    PLAYER
-------------------------- */
+========================= */
 
 function drawPlayer() {
 
-    /*
-      Steering gives continuous
-      position across road.
-    */
-
-    const depth = 0.92;
-
-    const center =
-        roadCenter(depth);
-
-    const width =
-        roadWidth(depth);
+    const p =
+        roadPoint(0.92);
 
     const x =
-        center +
-        steering * width * 0.72;
+        p.x +
+        steering *
+        p.width *
+        0.72;
 
     const y =
-        roadY(depth) - 12;
+        p.y - 12;
 
-    ctx.shadowColor = "#ffffff";
-    ctx.shadowBlur = 20;
+    const glow =
+        15 + bass*35;
 
-    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor =
+        musicColor(1);
+
+    ctx.shadowBlur = glow;
+
+    ctx.fillStyle="#ffffff";
 
     ctx.beginPath();
 
     ctx.moveTo(
         x,
-        y - 26
+        y-25
     );
 
     ctx.lineTo(
-        x - 20,
-        y + 18
+        x-20,
+        y+18
     );
 
     ctx.lineTo(
-        x + 20,
-        y + 18
+        x+20,
+        y+18
     );
 
     ctx.closePath();
 
     ctx.fill();
 
-    ctx.shadowBlur = 0;
+    ctx.shadowBlur=0;
 }
 
-/* -------------------------
-   BASS EFFECT
-------------------------- */
 
-function drawBassPulse() {
+/* =========================
+   MUSIC PULSE
+========================= */
 
-    if (bass < 50) return;
+function drawPulse() {
+
+    if(bass < 0.55)
+        return;
 
     const strength =
-        (bass - 50) / 50;
+        (bass-0.55)/0.45;
 
     ctx.globalAlpha =
-        Math.min(
-            0.20,
-            strength * 0.20
-        );
+        strength*0.12;
 
-    ctx.fillStyle = "#00eaff";
+    ctx.fillStyle =
+        musicColor(0.5);
 
     ctx.fillRect(
-        0,
-        0,
+        0,0,
         canvas.width,
         canvas.height
     );
 
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha=1;
 }
 
-/* -------------------------
-   MAIN LOOP
-------------------------- */
+
+/* =========================
+   LOOP
+========================= */
 
 function loop() {
 
     ctx.clearRect(
-        0,
-        0,
+        0,0,
         canvas.width,
         canvas.height
     );
 
-    readBass();
+    analyzeMusic();
     updateSteering();
 
     /*
-      Music changes forward speed
-      slightly, but never stops.
+       Forward speed responds
+       gently to overall energy.
     */
 
     const speed =
         0.018 +
-        (bass / 100) * 0.018;
+        smoothEnergy*0.025;
 
-    roadTime += speed;
-
-    speedText.textContent =
-        Math.round(speed * 10000);
+    worldTime += speed;
 
     drawRoad();
     drawPlayer();
-    drawBassPulse();
+    drawPulse();
 
     requestAnimationFrame(loop);
 }
