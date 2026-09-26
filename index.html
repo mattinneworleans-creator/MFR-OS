@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MFR//OS Audio Analyzer</title>
+<title>MFR//OS Web Audio Test</title>
 
 <style>
 body {
@@ -14,45 +14,30 @@ body {
 }
 
 #screen {
-    padding-top: 35px;
+    padding-top: 50px;
 }
 
 h1 {
     font-size: 55px;
-    margin: 10px;
-}
-
-#status {
-    font-size: 20px;
-    margin: 15px;
 }
 
 button {
-    margin: 8px;
-    padding: 15px 30px;
-    font-size: 18px;
+    margin: 15px;
+    padding: 20px 40px;
+    font-size: 20px;
     background: #00eaff;
     color: #05070a;
     border: none;
     cursor: pointer;
 }
 
-input {
-    display: none;
-}
-
-audio {
-    display: block;
-    width: 70%;
-    margin: 15px auto;
-}
-
-canvas {
+#results {
+    margin: 30px auto;
     width: 80%;
-    height: 220px;
-    background: #020304;
+    font-size: 22px;
+    line-height: 1.8;
     border: 2px solid #00eaff;
-    margin-top: 15px;
+    padding: 20px;
 }
 </style>
 </head>
@@ -61,149 +46,67 @@ canvas {
 
 <div id="screen">
 
-    <h1>MFR//OS</h1>
+<h1>MFR//OS</h1>
 
-    <p id="status">NO SONG LOADED</p>
+<p>FIRESTORM WEB AUDIO DIAGNOSTIC</p>
 
-    <input type="file"
-           id="songFile"
-           accept=".mp3,audio/mpeg,audio/*">
+<button id="testButton">RUN TEST</button>
 
-    <button id="chooseButton">CHOOSE SONG</button>
-    <button id="playButton">PLAY SONG</button>
-    <button id="pauseButton">PAUSE</button>
-
-    <audio id="player" controls></audio>
-
-    <canvas id="visualizer" width="800" height="220"></canvas>
+<div id="results">
+WAITING FOR TEST
+</div>
 
 </div>
 
 <script>
 
-const songFile = document.getElementById("songFile");
-const chooseButton = document.getElementById("chooseButton");
-const playButton = document.getElementById("playButton");
-const pauseButton = document.getElementById("pauseButton");
-const player = document.getElementById("player");
-const status = document.getElementById("status");
+const results = document.getElementById("results");
 
-const canvas = document.getElementById("visualizer");
-const ctx = canvas.getContext("2d");
+document.getElementById("testButton").addEventListener("click", function() {
 
-let currentURL = null;
+    let output = "";
 
-let audioContext = null;
-let analyser = null;
-let source = null;
-let dataArray = null;
+    const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
 
-chooseButton.addEventListener("click", function() {
-    songFile.click();
-});
-
-songFile.addEventListener("change", function() {
-
-    if (!songFile.files.length) return;
-
-    const song = songFile.files[0];
-
-    if (currentURL) {
-        URL.revokeObjectURL(currentURL);
-    }
-
-    currentURL = URL.createObjectURL(song);
-
-    player.src = currentURL;
-    player.load();
-
-    status.textContent = "LOADED: " + song.name;
-});
-
-playButton.addEventListener("click", async function() {
-
-    if (!player.src) {
-        status.textContent = "CHOOSE A SONG FIRST";
+    if (AudioContextClass) {
+        output += "AudioContext: YES<br>";
+    } else {
+        output += "AudioContext: NO<br>";
+        results.innerHTML = output;
         return;
     }
 
     try {
 
-        if (!audioContext) {
+        const audioContext = new AudioContextClass();
 
-            audioContext = new AudioContext();
+        output += "AudioContext creation: YES<br>";
 
-            analyser = audioContext.createAnalyser();
-
-            analyser.fftSize = 256;
-
-            source =
-                audioContext.createMediaElementSource(player);
-
-            source.connect(analyser);
-
-            analyser.connect(audioContext.destination);
-
-            dataArray =
-                new Uint8Array(analyser.frequencyBinCount);
-
-            drawVisualizer();
+        if (typeof audioContext.createAnalyser === "function") {
+            output += "createAnalyser: YES<br>";
+        } else {
+            output += "createAnalyser: NO<br>";
         }
 
-        if (audioContext.state === "suspended") {
-            await audioContext.resume();
+        if (typeof audioContext.createMediaElementSource === "function") {
+            output += "createMediaElementSource: YES<br>";
+        } else {
+            output += "createMediaElementSource: NO<br>";
         }
 
-        await player.play();
+        output += "Audio state: " + audioContext.state + "<br>";
 
-        status.textContent = "NOW PLAYING";
+        audioContext.close();
 
     } catch (error) {
 
-        status.textContent =
-            "ERROR: " + error.message;
+        output += "ERROR: " + error.message + "<br>";
     }
+
+    results.innerHTML = output;
+
 });
-
-pauseButton.addEventListener("click", function() {
-
-    player.pause();
-
-    status.textContent = "PAUSED";
-});
-
-
-function drawVisualizer() {
-
-    requestAnimationFrame(drawVisualizer);
-
-    analyser.getByteFrequencyData(dataArray);
-
-    ctx.fillStyle = "#020304";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const barWidth =
-        canvas.width / dataArray.length;
-
-    let x = 0;
-
-    for (let i = 0; i < dataArray.length; i++) {
-
-        const barHeight =
-            (dataArray[i] / 255) * canvas.height;
-
-        ctx.fillStyle = "#00eaff";
-
-        ctx.fillRect(
-            x,
-            canvas.height - barHeight,
-            barWidth - 1,
-            barHeight
-        );
-
-        x += barWidth;
-    }
-}
 
 </script>
 
