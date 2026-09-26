@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MFR//OS GAME TEST 02</title>
+
+<style>
+body {
+    margin: 0;
+    background: #020306;
+    color: #00eaff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    overflow: hidden;
+}
+
+h1 {
+    margin: 8px 0 0;
+    font-size: 30px;
+}
+
+#version {
+    font-size: 13px;
+    margin: 2px 0 6px;
+}
+
+button {
+    padding: 9px 18px;
+    margin: 3px;
+    background: #00eaff;
+    color: #020306;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+input {
+    display: none;
+}
+
+audio {
+    width: 55%;
+    height: 26px;
+    vertical-align: middle;
+}
+
+#info {
+    margin: 4px;
+    font-size: 14px;
+}
+
+#game {
+    display: block;
+    margin: 6px auto;
+    border: 2px solid #00eaff;
+    background: #020306;
+    max-width: 96vw;
+    max-height: 66vh;
+}
+
+.controls button {
+    min-width: 100px;
+    font-size: 18px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>MFR//OS</h1>
+<div id="version">GAME TEST 02 — MUSIC HIGHWAY</div>
+
+<input type="file" id="songFile" accept="audio/*">
+
+<button id="choose">CHOOSE SONG</button>
+<button id="play">PLAY</button>
+<button id="pause">PAUSE</button>
+
+<audio id="player" controls></audio>
+
+<div id="info">
+BASS: <span id="bass">0</span>% |
+SPEED: <span id="speed">0</span> |
+SCORE: <span id="score">0</span> |
+<span id="status">READY</span>
+</div>
+
+<canvas id="game" width="800" height="450"></canvas>
+
+<div class="controls">
+<button id="left">◀ LEFT</button>
+<button id="right">RIGHT ▶</button>
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const songFile = document.getElementById("songFile");
+const player = document.getElementById("player");
+
+const bassText = document.getElementById("bass");
+const speedText = document.getElementById("speed");
+const scoreText = document.getElementById("score");
+const statusText = document.getElementById("status");
+
+let audioContext;
+let analyser;
+let source;
+let dataArray;
+let songURL;
+
+let bass = 0;
+let previousBass = 0;
+
+let playerLane = 1;
+let score = 0;
+
+let targets = [];
+
+let roadOffset = 0;
+let lastSpawn = 0;
+
+document.getElementById("choose").onclick = () => {
+    songFile.click();
+};
+
+songFile.onchange = () => {
+
+    if (!songFile.files.length) return;
+
+    if (songURL) {
+        URL.revokeObjectURL(songURL);
+    }
+
+    songURL = URL.createObjectURL(songFile.files[0]);
+
+    player.src = songURL;
+    player.load();
+
+    statusText.textContent = "SONG LOADED";
+};
+
+document.getElementById("play").onclick = async () => {
+
+    try {
+
+        if (!audioContext) {
+
+            const AC =
+                window.AudioContext ||
+                window.webkitAudioContext;
+
+            audioContext = new AC();
+
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.65;
+
+            source =
+                audioContext.createMediaElementSource(player);
+
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            dataArray =
+                new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        await player.play();
+
+        statusText.textContent = "RUNNING";
+
+    } catch(error) {
+
+        statusText.textContent =
+            "ERROR: " + error.message;
+    }
+};
+
+document.getElementById("pause").onclick = () => {
+
+    player.pause();
+
+    statusText.textContent = "PAUSED";
+};
+
+function moveLeft() {
+
+    if (playerLane > 0) {
+        playerLane--;
+    }
+}
+
+function moveRight() {
+
+    if (playerLane < 2) {
+        playerLane++;
+    }
+}
+
+document.getElementById("left").onclick = moveLeft;
+document.getElementById("right").onclick = moveRight;
+
+document.addEventListener("keydown", e => {
+
+    if (
+        e.key === "ArrowLeft" ||
+        e.key.toLowerCase() === "a"
+    ) {
+        moveLeft();
+    }
+
+    if (
+        e.key === "ArrowRight" ||
+        e.key.toLowerCase() === "d"
+    ) {
+        moveRight();
+    }
+});
+
+function readBass() {
+
+    if (!analyser) {
+        bass = 0;
+        return;
+    }
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const sampleRate = audioContext.sampleRate;
+    const binHz = sampleRate / analyser.fftSize;
+
+    const lowBin =
+        Math.max(1, Math.floor(40 / binHz));
+
+    const highBin =
+        Math.min(
+            dataArray.length - 1,
+            Math.ceil(160 / binHz)
+        );
+
+    let total = 0;
+    let count = 0;
+
+    for (let i = lowBin; i <= highBin; i++) {
+        total += dataArray[i];
+        count++;
+    }
+
+    const average =
+        count ? total / count : 0;
+
+    bass =
+        Math.round((average / 255) * 100);
+
+    bassText.textContent = bass;
+}
+
+function spawnTarget() {
+
+    targets.push({
+        lane: Math.floor(Math.random() * 3),
+        depth: 0,
+        hit: false
+    });
+}
+
+/*
+ depth:
+ 0 = horizon
+ 1 = player
+*/
+
+function roadX(lane, depth) {
+
+    const center = canvas.width / 2;
+
+    const spread =
+        18 + depth * 190;
+
+    return center +
+        (lane - 1) * spread;
+}
+
+function update(time) {
+
+    readBass();
+
+    const speed =
+        0.007 + (bass / 100) * 0.007;
+
+    speedText.textContent =
+        Math.round(speed * 10000);
+
+    roadOffset += speed * 4;
+
+    /*
+      Crude beat/event detector.
+      We are deliberately NOT trying
+      to perfect this yet.
+    */
+
+    const jump =
+        bass - previousBass;
+
+    if (
+        bass > 35 &&
+        jump > 4 &&
+        time - lastSpawn > 180
+    ) {
+
+        spawnTarget();
+        lastSpawn = time;
+    }
+
+    previousBass = bass;
+
+    for (const target of targets) {
+
+        target.depth += speed;
+
+        if (
+            target.depth > 0.82 &&
+            target.depth < 1.03 &&
+            target.lane === playerLane &&
+            !target.hit
+        ) {
+
+            target.hit = true;
+
+            score++;
+
+            scoreText.textContent = score;
+        }
+    }
+
+    targets =
+        targets.filter(t => t.depth < 1.15);
+}
+
+function drawBackground() {
+
+    const glow =
+        8 + bass * 0.25;
+
+    ctx.shadowColor = "#00eaff";
+    ctx.shadowBlur = glow;
+
+    ctx.strokeStyle = "#00eaff";
+    ctx.lineWidth = 2;
+
+    ctx.strokeRect(
+        2,
+        2,
+        canvas.width - 4,
+        canvas.height - 4
+    );
+
+    ctx.shadowBlur = 0;
+}
+
+function drawRoad() {
+
+    const horizonY = 75;
+    const bottomY = canvas.height;
+
+    /*
+      Outer highway edges
+    */
+
+    ctx.strokeStyle = "#00eaff";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 - 38, horizonY);
+    ctx.lineTo(70, bottomY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 + 38, horizonY);
+    ctx.lineTo(canvas.width - 70, bottomY);
+    ctx.stroke();
+
+    /*
+      Lane lines
+    */
+
+    ctx.globalAlpha = 0.4;
+
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 - 13, horizonY);
+    ctx.lineTo(canvas.width * 0.37, bottomY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 + 13, horizonY);
+    ctx.lineTo(canvas.width * 0.63, bottomY);
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+
+    /*
+      Moving horizontal road markers.
+      These create the sensation that
+      we're flying forward.
+    */
+
+    for (let i = 0; i < 18; i++) {
+
+        let d =
+            ((i / 18) + roadOffset) % 1;
+
+        /*
+          Squaring depth gives stronger
+          perspective acceleration.
+        */
+
+        d = d * d;
+
+        const y =
+            horizonY +
+            d * (bottomY - horizonY);
+
+        const halfWidth =
+            38 +
+            d * (canvas.width / 2 - 108);
+
+        ctx.globalAlpha =
+            0.15 + d * 0.65;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            canvas.width / 2 - halfWidth,
+            y
+        );
+
+        ctx.lineTo(
+            canvas.width / 2 + halfWidth,
+            y
+        );
+
+        ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+function drawTargets() {
+
+    for (const target of targets) {
+
+        const d = target.depth;
+
+        const x =
+            roadX(target.lane, d);
+
+        const y =
+            75 +
+            d * d *
+            (canvas.height - 105);
+
+        const size =
+            6 + d * 42;
+
+        ctx.shadowColor = "#00eaff";
+        ctx.shadowBlur =
+            target.hit ? 30 : 12;
+
+        ctx.fillStyle =
+            target.hit
+            ? "#ffffff"
+            : "#00eaff";
+
+        ctx.fillRect(
+            x - size / 2,
+            y - size / 2,
+            size,
+            size
+        );
+    }
+
+    ctx.shadowBlur = 0;
+}
+
+function drawPlayer() {
+
+    const x =
+        roadX(playerLane, 1);
+
+    const y =
+        canvas.height - 45;
+
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = 18;
+
+    ctx.fillStyle = "#ffffff";
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        x,
+        y - 25
+    );
+
+    ctx.lineTo(
+        x - 20,
+        y + 18
+    );
+
+    ctx.lineTo(
+        x + 20,
+        y + 18
+    );
+
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+}
+
+function drawBassPulse() {
+
+    if (bass < 45) return;
+
+    const strength =
+        (bass - 45) / 55;
+
+    ctx.globalAlpha =
+        Math.min(0.35, strength * 0.35);
+
+    ctx.fillStyle = "#00eaff";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    ctx.globalAlpha = 1;
+}
+
+function loop(time) {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    update(time);
+
+    drawBackground();
+    drawRoad();
+    drawTargets();
+    drawPlayer();
+    drawBassPulse();
+
+    requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+</script>
+
+</body>
+</html>
