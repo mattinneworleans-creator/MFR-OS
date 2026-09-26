@@ -14,12 +14,11 @@ body {
 }
 
 #screen {
-    padding-top: 100px;
+    padding-top: 80px;
 }
 
 h1 {
     font-size: 60px;
-    margin-bottom: 10px;
 }
 
 p {
@@ -27,7 +26,7 @@ p {
 }
 
 button {
-    margin-top: 40px;
+    margin-top: 30px;
     padding: 20px 50px;
     font-size: 24px;
     background: #00eaff;
@@ -35,25 +34,46 @@ button {
     border: none;
     cursor: pointer;
 }
+
+input {
+    display: none;
+}
 </style>
 </head>
 
 <body>
 
 <div id="screen">
-    <h1>MFR//OS</h1>
-    <p id="status">SYSTEM READY</p>
 
-    <button id="startButton">START</button>
+<h1>MFR//OS</h1>
+
+<p id="status">SELECT A SONG</p>
+
+<input type="file" id="songFile" accept="audio/*">
+
+<button onclick="document.getElementById('songFile').click()">
+CHOOSE SONG
+</button>
+
 </div>
 
 <script>
-document.getElementById("startButton").addEventListener("click", function () {
-    document.getElementById("status").textContent =
-        "JAVASCRIPT IS RUNNING INSIDE SECOND LIFE";
 
-    this.textContent = "ONLINE";
+const songFile = document.getElementById("songFile");
+
+songFile.addEventListener("change", function() {
+
+    if (this.files.length > 0) {
+
+        const song = this.files[0];
+
+        document.getElementById("status").textContent =
+            "SONG LOADED: " + song.name;
+
+    }
+
 });
+
 </script>
 
 </body>
