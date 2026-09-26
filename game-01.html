@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MFR//OS GAME 01</title>
+
+<style>
+body {
+    margin: 0;
+    background: #020306;
+    color: #00eaff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    overflow: hidden;
+}
+
+h1 {
+    margin: 6px 0 0;
+    font-size: 28px;
+}
+
+#version {
+    font-size: 13px;
+    margin-bottom: 5px;
+}
+
+button {
+    padding: 9px 18px;
+    margin: 3px;
+    background: #00eaff;
+    color: #020306;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+}
+
+input {
+    display: none;
+}
+
+audio {
+    width: 55%;
+    height: 26px;
+    vertical-align: middle;
+}
+
+#info {
+    margin: 4px;
+    font-size: 14px;
+}
+
+#game {
+    display: block;
+    margin: 6px auto;
+    border: 2px solid #00eaff;
+    background: #020306;
+    max-width: 96vw;
+    max-height: 68vh;
+}
+
+.controls button {
+    min-width: 120px;
+    font-size: 18px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>MFR//OS</h1>
+<div id="version">GAME 01 — NEON RUNNER</div>
+
+<input type="file" id="songFile" accept="audio/*">
+
+<button id="choose">CHOOSE SONG</button>
+<button id="play">PLAY</button>
+<button id="pause">PAUSE</button>
+
+<audio id="player" controls></audio>
+
+<div id="info">
+BASS: <span id="bass">0</span>% |
+SPEED: <span id="speed">0</span> |
+<span id="status">READY</span>
+</div>
+
+<canvas id="game" width="800" height="450"></canvas>
+
+<div class="controls">
+<button id="left">◀ LEFT</button>
+<button id="right">RIGHT ▶</button>
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const songFile = document.getElementById("songFile");
+const player = document.getElementById("player");
+
+const bassText = document.getElementById("bass");
+const speedText = document.getElementById("speed");
+const statusText = document.getElementById("status");
+
+let audioContext;
+let analyser;
+let source;
+let dataArray;
+let songURL;
+
+let bass = 0;
+let roadTime = 0;
+
+/* -------------------------
+   SMOOTH STEERING
+------------------------- */
+
+let steering = 0;
+let targetSteering = 0;
+
+let leftHeld = false;
+let rightHeld = false;
+
+const MAX_STEER = 1;
+const STEER_SPEED = 0.035;
+const RETURN_SPEED = 0.025;
+const SMOOTHING = 0.12;
+
+/* -------------------------
+   AUDIO
+------------------------- */
+
+document.getElementById("choose").onclick = () => {
+    songFile.click();
+};
+
+songFile.onchange = () => {
+
+    if (!songFile.files.length) return;
+
+    if (songURL) {
+        URL.revokeObjectURL(songURL);
+    }
+
+    songURL = URL.createObjectURL(songFile.files[0]);
+
+    player.src = songURL;
+    player.load();
+
+    statusText.textContent = "SONG LOADED";
+};
+
+document.getElementById("play").onclick = async () => {
+
+    try {
+
+        if (!audioContext) {
+
+            const AC =
+                window.AudioContext ||
+                window.webkitAudioContext;
+
+            audioContext = new AC();
+
+            analyser = audioContext.createAnalyser();
+
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.68;
+
+            source =
+                audioContext.createMediaElementSource(player);
+
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            dataArray =
+                new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        await player.play();
+
+        statusText.textContent = "RUNNING";
+
+    } catch(error) {
+
+        statusText.textContent =
+            "ERROR: " + error.message;
+    }
+};
+
+document.getElementById("pause").onclick = () => {
+
+    player.pause();
+
+    statusText.textContent = "PAUSED";
+};
+
+function readBass() {
+
+    if (!analyser) {
+        bass = 0;
+        return;
+    }
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const sampleRate = audioContext.sampleRate;
+    const binHz = sampleRate / analyser.fftSize;
+
+    const lowBin =
+        Math.max(1, Math.floor(40 / binHz));
+
+    const highBin =
+        Math.min(
+            dataArray.length - 1,
+            Math.ceil(160 / binHz)
+        );
+
+    let total = 0;
+    let count = 0;
+
+    for (let i = lowBin; i <= highBin; i++) {
+        total += dataArray[i];
+        count++;
+    }
+
+    const average =
+        count ? total / count : 0;
+
+    bass =
+        Math.round((average / 255) * 100);
+
+    bassText.textContent = bass;
+}
+
+/* -------------------------
+   KEYBOARD STEERING
+------------------------- */
+
+document.addEventListener("keydown", e => {
+
+    if (e.key === "ArrowLeft" ||
+        e.key.toLowerCase() === "a") {
+
+        leftHeld = true;
+        e.preventDefault();
+    }
+
+    if (e.key === "ArrowRight" ||
+        e.key.toLowerCase() === "d") {
+
+        rightHeld = true;
+        e.preventDefault();
+    }
+});
+
+document.addEventListener("keyup", e => {
+
+    if (e.key === "ArrowLeft" ||
+        e.key.toLowerCase() === "a") {
+
+        leftHeld = false;
+    }
+
+    if (e.key === "ArrowRight" ||
+        e.key.toLowerCase() === "d") {
+
+        rightHeld = false;
+    }
+});
+
+/* -------------------------
+   BUTTON STEERING
+
+   Mouse + touch so this
+   also works on the prim.
+------------------------- */
+
+function holdLeft() {
+    leftHeld = true;
+}
+
+function releaseLeft() {
+    leftHeld = false;
+}
+
+function holdRight() {
+    rightHeld = true;
+}
+
+function releaseRight() {
+    rightHeld = false;
+}
+
+const leftButton =
+    document.getElementById("left");
+
+const rightButton =
+    document.getElementById("right");
+
+leftButton.addEventListener("mousedown", holdLeft);
+leftButton.addEventListener("mouseup", releaseLeft);
+leftButton.addEventListener("mouseleave", releaseLeft);
+
+rightButton.addEventListener("mousedown", holdRight);
+rightButton.addEventListener("mouseup", releaseRight);
+rightButton.addEventListener("mouseleave", releaseRight);
+
+leftButton.addEventListener("touchstart", e => {
+    e.preventDefault();
+    holdLeft();
+});
+
+leftButton.addEventListener("touchend", e => {
+    e.preventDefault();
+    releaseLeft();
+});
+
+rightButton.addEventListener("touchstart", e => {
+    e.preventDefault();
+    holdRight();
+});
+
+rightButton.addEventListener("touchend", e => {
+    e.preventDefault();
+    releaseRight();
+});
+
+/* -------------------------
+   STEERING PHYSICS
+------------------------- */
+
+function updateSteering() {
+
+    if (leftHeld && !rightHeld) {
+
+        targetSteering -= STEER_SPEED;
+
+    } else if (rightHeld && !leftHeld) {
+
+        targetSteering += STEER_SPEED;
+
+    } else {
+
+        /*
+          Slowly return target
+          toward center.
+        */
+
+        if (targetSteering > 0) {
+
+            targetSteering =
+                Math.max(
+                    0,
+                    targetSteering - RETURN_SPEED
+                );
+
+        } else if (targetSteering < 0) {
+
+            targetSteering =
+                Math.min(
+                    0,
+                    targetSteering + RETURN_SPEED
+                );
+        }
+    }
+
+    targetSteering =
+        Math.max(
+            -MAX_STEER,
+            Math.min(MAX_STEER, targetSteering)
+        );
+
+    /*
+      Smooth interpolation.
+
+      THIS is what removes
+      the lane-jump jerkiness.
+    */
+
+    steering +=
+        (targetSteering - steering) *
+        SMOOTHING;
+}
+
+/* -------------------------
+   ROAD
+------------------------- */
+
+function roadCurve(depth) {
+
+    /*
+      Two overlapping curves
+      stop the road from feeling
+      like a simple sine wave.
+    */
+
+    const curve1 =
+        Math.sin(
+            roadTime * 0.55 +
+            depth * 3.2
+        ) * 70;
+
+    const curve2 =
+        Math.sin(
+            roadTime * 0.21 +
+            depth * 6.0
+        ) * 24;
+
+    return (curve1 + curve2) * depth;
+}
+
+function roadHill(depth) {
+
+    /*
+      Vertical rise/fall.
+
+      Stronger toward horizon,
+      softer near player.
+    */
+
+    return (
+        Math.sin(
+            roadTime * 0.40 +
+            depth * 4.5
+        ) *
+        24 *
+        (1 - depth)
+    );
+}
+
+function roadWidth(depth) {
+
+    return 40 + depth * 300;
+}
+
+function roadY(depth) {
+
+    const horizon = 80;
+
+    return horizon +
+        depth * depth *
+        (canvas.height - horizon) +
+        roadHill(depth);
+}
+
+function roadCenter(depth) {
+
+    return canvas.width / 2 +
+        roadCurve(depth);
+}
+
+/* -------------------------
+   DRAW ROAD
+------------------------- */
+
+function drawRoad() {
+
+    const segments = 45;
+
+    for (let i = 0; i < segments; i++) {
+
+        const d1 = i / segments;
+        const d2 = (i + 1) / segments;
+
+        const y1 = roadY(d1);
+        const y2 = roadY(d2);
+
+        const center1 = roadCenter(d1);
+        const center2 = roadCenter(d2);
+
+        const width1 = roadWidth(d1);
+        const width2 = roadWidth(d2);
+
+        const alpha =
+            0.15 + d1 * 0.75;
+
+        ctx.globalAlpha = alpha;
+
+        ctx.strokeStyle = "#00eaff";
+        ctx.lineWidth = 2;
+
+        /*
+          Left edge
+        */
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            center1 - width1,
+            y1
+        );
+
+        ctx.lineTo(
+            center2 - width2,
+            y2
+        );
+
+        ctx.stroke();
+
+        /*
+          Right edge
+        */
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            center1 + width1,
+            y1
+        );
+
+        ctx.lineTo(
+            center2 + width2,
+            y2
+        );
+
+        ctx.stroke();
+
+        /*
+          Lane separators
+        */
+
+        for (let lane = -1; lane <= 1; lane += 2) {
+
+            ctx.globalAlpha =
+                alpha * 0.45;
+
+            ctx.beginPath();
+
+            ctx.moveTo(
+                center1 +
+                lane * width1 / 3,
+                y1
+            );
+
+            ctx.lineTo(
+                center2 +
+                lane * width2 / 3,
+                y2
+            );
+
+            ctx.stroke();
+        }
+
+        /*
+          Moving cross-lines
+        */
+
+        if (
+            ((i + Math.floor(roadTime * 12)) % 4)
+            === 0
+        ) {
+
+            ctx.globalAlpha =
+                alpha * 0.55;
+
+            ctx.beginPath();
+
+            ctx.moveTo(
+                center1 - width1,
+                y1
+            );
+
+            ctx.lineTo(
+                center1 + width1,
+                y1
+            );
+
+            ctx.stroke();
+        }
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+/* -------------------------
+   PLAYER
+------------------------- */
+
+function drawPlayer() {
+
+    /*
+      Steering gives continuous
+      position across road.
+    */
+
+    const depth = 0.92;
+
+    const center =
+        roadCenter(depth);
+
+    const width =
+        roadWidth(depth);
+
+    const x =
+        center +
+        steering * width * 0.72;
+
+    const y =
+        roadY(depth) - 12;
+
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = 20;
+
+    ctx.fillStyle = "#ffffff";
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        x,
+        y - 26
+    );
+
+    ctx.lineTo(
+        x - 20,
+        y + 18
+    );
+
+    ctx.lineTo(
+        x + 20,
+        y + 18
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+}
+
+/* -------------------------
+   BASS EFFECT
+------------------------- */
+
+function drawBassPulse() {
+
+    if (bass < 50) return;
+
+    const strength =
+        (bass - 50) / 50;
+
+    ctx.globalAlpha =
+        Math.min(
+            0.20,
+            strength * 0.20
+        );
+
+    ctx.fillStyle = "#00eaff";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    ctx.globalAlpha = 1;
+}
+
+/* -------------------------
+   MAIN LOOP
+------------------------- */
+
+function loop() {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    readBass();
+    updateSteering();
+
+    /*
+      Music changes forward speed
+      slightly, but never stops.
+    */
+
+    const speed =
+        0.018 +
+        (bass / 100) * 0.018;
+
+    roadTime += speed;
+
+    speedText.textContent =
+        Math.round(speed * 10000);
+
+    drawRoad();
+    drawPlayer();
+    drawBassPulse();
+
+    requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+</script>
+
+</body>
+</html>
