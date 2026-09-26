@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MFR//OS</title>
+
+<style>
+body {
+    margin: 0;
+    background: #05070a;
+    color: #00eaff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+#screen {
+    padding-top: 100px;
+}
+
+h1 {
+    font-size: 60px;
+    margin-bottom: 10px;
+}
+
+p {
+    font-size: 24px;
+}
+
+button {
+    margin-top: 40px;
+    padding: 20px 50px;
+    font-size: 24px;
+    background: #00eaff;
+    color: #05070a;
+    border: none;
+    cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="screen">
+    <h1>MFR//OS</h1>
+    <p id="status">SYSTEM READY</p>
+
+    <button id="startButton">START</button>
+</div>
+
+<script>
+document.getElementById("startButton").addEventListener("click", function () {
+    document.getElementById("status").textContent =
+        "JAVASCRIPT IS RUNNING INSIDE SECOND LIFE";
+
+    this.textContent = "ONLINE";
+});
+</script>
+
+</body>
+</html>
