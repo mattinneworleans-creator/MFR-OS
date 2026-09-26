@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MFR//OS GAME TEST 01</title>
+
+<style>
+body {
+    margin: 0;
+    background: #05070a;
+    color: #00eaff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    overflow: hidden;
+}
+
+h1 {
+    margin: 12px 0 2px;
+    font-size: 32px;
+}
+
+#version {
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+button {
+    padding: 10px 20px;
+    margin: 4px;
+    background: #00eaff;
+    color: #05070a;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+input {
+    display: none;
+}
+
+audio {
+    width: 60%;
+    height: 28px;
+    vertical-align: middle;
+}
+
+#game {
+    display: block;
+    margin: 8px auto;
+    border: 2px solid #00eaff;
+    background: #020306;
+    max-width: 95vw;
+    max-height: 60vh;
+}
+
+#info {
+    font-size: 16px;
+    margin: 4px;
+}
+
+.controls button {
+    font-size: 20px;
+    min-width: 100px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>MFR//OS</h1>
+<div id="version">GAME TEST 01 — MUSIC RUNNER</div>
+
+<input type="file" id="songFile" accept="audio/*">
+
+<button id="choose">CHOOSE SONG</button>
+<button id="play">PLAY</button>
+<button id="pause">PAUSE</button>
+
+<audio id="player" controls></audio>
+
+<div id="info">
+BASS: <span id="bass">0</span>% |
+SCORE: <span id="score">0</span> |
+<span id="status">READY</span>
+</div>
+
+<canvas id="game" width="700" height="420"></canvas>
+
+<div class="controls">
+<button id="left">◀ LEFT</button>
+<button id="right">RIGHT ▶</button>
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const songFile = document.getElementById("songFile");
+const player = document.getElementById("player");
+
+const bassText = document.getElementById("bass");
+const scoreText = document.getElementById("score");
+const statusText = document.getElementById("status");
+
+let audioContext;
+let analyser;
+let source;
+let dataArray;
+let songURL;
+
+let bass = 0;
+let lastBass = 0;
+let lastSpawn = 0;
+
+let score = 0;
+
+const lanes = [
+    canvas.width * 0.30,
+    canvas.width * 0.50,
+    canvas.width * 0.70
+];
+
+let playerLane = 1;
+
+let blocks = [];
+
+document.getElementById("choose").onclick = () => {
+    songFile.click();
+};
+
+songFile.onchange = () => {
+
+    if (!songFile.files.length) return;
+
+    if (songURL) {
+        URL.revokeObjectURL(songURL);
+    }
+
+    songURL = URL.createObjectURL(songFile.files[0]);
+
+    player.src = songURL;
+    player.load();
+
+    statusText.textContent = "SONG LOADED";
+};
+
+document.getElementById("play").onclick = async () => {
+
+    try {
+
+        if (!audioContext) {
+
+            const AC =
+                window.AudioContext ||
+                window.webkitAudioContext;
+
+            audioContext = new AC();
+
+            analyser = audioContext.createAnalyser();
+
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.65;
+
+            source =
+                audioContext.createMediaElementSource(player);
+
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            dataArray =
+                new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        if (audioContext.state === "suspended") {
+            await audioContext.resume();
+        }
+
+        await player.play();
+
+        statusText.textContent = "RUNNING";
+
+    } catch(error) {
+
+        statusText.textContent =
+            "ERROR: " + error.message;
+    }
+};
+
+document.getElementById("pause").onclick = () => {
+
+    player.pause();
+
+    statusText.textContent = "PAUSED";
+};
+
+function moveLeft() {
+
+    if (playerLane > 0) {
+        playerLane--;
+    }
+}
+
+function moveRight() {
+
+    if (playerLane < 2) {
+        playerLane++;
+    }
+}
+
+document.getElementById("left").onclick = moveLeft;
+document.getElementById("right").onclick = moveRight;
+
+document.addEventListener("keydown", event => {
+
+    if (
+        event.key === "ArrowLeft" ||
+        event.key.toLowerCase() === "a"
+    ) {
+        moveLeft();
+    }
+
+    if (
+        event.key === "ArrowRight" ||
+        event.key.toLowerCase() === "d"
+    ) {
+        moveRight();
+    }
+});
+
+function readBass() {
+
+    if (!analyser) {
+        bass = 0;
+        return;
+    }
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const sampleRate = audioContext.sampleRate;
+    const binHz = sampleRate / analyser.fftSize;
+
+    const lowBin =
+        Math.max(1, Math.floor(40 / binHz));
+
+    const highBin =
+        Math.min(
+            dataArray.length - 1,
+            Math.ceil(160 / binHz)
+        );
+
+    let total = 0;
+    let count = 0;
+
+    for (
+        let i = lowBin;
+        i <= highBin;
+        i++
+    ) {
+        total += dataArray[i];
+        count++;
+    }
+
+    const average =
+        count ? total / count : 0;
+
+    bass =
+        Math.round(
+            (average / 255) * 100
+        );
+
+    bassText.textContent = bass;
+}
+
+function spawnBlock() {
+
+    const lane =
+        Math.floor(Math.random() * 3);
+
+    blocks.push({
+        lane: lane,
+        y: 65,
+        size: 18
+    });
+}
+
+function updateGame(time) {
+
+    readBass();
+
+    /*
+       First crude music trigger.
+
+       Spawn when bass rises sharply
+       AND enough time has passed.
+    */
+
+    const bassJump =
+        bass - lastBass;
+
+    if (
+        bass > 35 &&
+        bassJump > 5 &&
+        time - lastSpawn > 220
+    ) {
+
+        spawnBlock();
+
+        lastSpawn = time;
+    }
+
+    lastBass = bass;
+
+    for (let block of blocks) {
+
+        block.y += 3.5;
+
+        /*
+           Make objects grow slightly
+           as they approach the player.
+        */
+
+        block.size += 0.12;
+    }
+
+    /*
+       Collision / collection zone
+    */
+
+    for (let block of blocks) {
+
+        if (
+            block.y > 340 &&
+            block.y < 390 &&
+            block.lane === playerLane &&
+            !block.hit
+        ) {
+
+            block.hit = true;
+
+            score++;
+
+            scoreText.textContent =
+                score;
+        }
+    }
+
+    blocks =
+        blocks.filter(
+            block => block.y < 440
+        );
+}
+
+function drawRoad() {
+
+    ctx.strokeStyle = "#00eaff";
+    ctx.lineWidth = 2;
+
+    /*
+       Perspective road edges
+    */
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        canvas.width * 0.42,
+        40
+    );
+
+    ctx.lineTo(
+        canvas.width * 0.12,
+        canvas.height
+    );
+
+    ctx.stroke();
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        canvas.width * 0.58,
+        40
+    );
+
+    ctx.lineTo(
+        canvas.width * 0.88,
+        canvas.height
+    );
+
+    ctx.stroke();
+
+    /*
+       Lane dividers
+    */
+
+    ctx.globalAlpha = 0.45;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        canvas.width * 0.47,
+        40
+    );
+
+    ctx.lineTo(
+        canvas.width * 0.38,
+        canvas.height
+    );
+
+    ctx.stroke();
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        canvas.width * 0.53,
+        40
+    );
+
+    ctx.lineTo(
+        canvas.width * 0.62,
+        canvas.height
+    );
+
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+}
+
+function drawBlocks() {
+
+    for (let block of blocks) {
+
+        const perspective =
+            block.y / canvas.height;
+
+        const center =
+            canvas.width / 2;
+
+        const laneSpread =
+            perspective * 145;
+
+        const x =
+            center +
+            (block.lane - 1) *
+            laneSpread;
+
+        ctx.fillStyle =
+            block.hit
+            ? "#ffffff"
+            : "#00eaff";
+
+        ctx.fillRect(
+            x - block.size / 2,
+            block.y - block.size / 2,
+            block.size,
+            block.size
+        );
+    }
+}
+
+function drawPlayer() {
+
+    const x = lanes[playerLane];
+
+    const y = 370;
+
+    ctx.fillStyle = "#ffffff";
+
+    ctx.beginPath();
+
+    ctx.moveTo(x, y - 22);
+
+    ctx.lineTo(
+        x - 18,
+        y + 18
+    );
+
+    ctx.lineTo(
+        x + 18,
+        y + 18
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+}
+
+function drawBassPulse() {
+
+    if (bass > 60) {
+
+        ctx.strokeStyle = "#00eaff";
+
+        ctx.globalAlpha =
+            Math.min(
+                0.6,
+                bass / 100
+            );
+
+        ctx.lineWidth = 5;
+
+        ctx.strokeRect(
+            4,
+            4,
+            canvas.width - 8,
+            canvas.height - 8
+        );
+
+        ctx.globalAlpha = 1;
+    }
+}
+
+function gameLoop(time) {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    updateGame(time);
+
+    drawRoad();
+    drawBlocks();
+    drawPlayer();
+    drawBassPulse();
+
+    requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+
+</script>
+
+</body>
+</html>
